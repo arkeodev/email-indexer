@@ -18,6 +18,8 @@ Built for Medium Daily Digest out of the box — designed to extend to any newsl
 - **Corruption recovery** — corrupt index files are backed up automatically; embedding mismatches are repaired when possible
 - **Gmail retry logic** — failed message fetches are retried up to 3 times with exponential backoff
 - **Thread-safe embedding engine** — lazy-initialised singleton with double-checked locking for safe concurrent use
+- **MCP server** — exposes the article index to Claude Desktop as a searchable tool via the Model Context Protocol
+- **Incremental fetching** — email-level caching skips already-fetched Gmail messages; article-level dedup prevents duplicate index entries
 - **uv** — fast dependency management with a committed lockfile
 
 ---
@@ -104,6 +106,34 @@ email-indexer-search "transformer architecture" --mode semantic
 # Search a different email type
 email-indexer-search "startup funding" --type tldr_tech
 ```
+
+### 7. Claude Desktop Integration (MCP Server)
+
+The project includes an MCP server that lets Claude search your article index directly during conversations. To set it up, add the following to your Claude Desktop config file (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "email-indexer": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/email-indexer", "email-indexer-mcp"]
+    }
+  }
+}
+```
+
+Replace `/path/to/email-indexer` with the actual project path. Restart Claude Desktop after editing.
+
+Once connected, Claude has access to four tools:
+
+| Tool | Description |
+|---|---|
+| `email_indexer_search` | Keyword search across articles by topic, with optional tag filtering |
+| `email_indexer_list_tags` | Lists all tags and their article counts |
+| `email_indexer_get_stats` | Returns index size and capabilities |
+| `email_indexer_get_article` | Looks up a specific article by URL |
+
+You can then ask Claude things like "find me Medium articles about LLM agents" and it will pull matching articles as context.
 
 ---
 
@@ -206,6 +236,13 @@ Options:
 ```
 
 ```
+email-indexer-mcp
+
+Starts the MCP server (stdio transport) for Claude Desktop integration.
+No options needed — configure via claude_desktop_config.json (see above).
+```
+
+```
 email-indexer-search [QUERY] [OPTIONS]
 
 Options:
@@ -278,6 +315,7 @@ email-indexer/
 │   ├── indexer.py              Pipeline orchestrator (parse → scrape → tag → store)
 │   ├── gmail_fetcher.py        Gmail OAuth2 + batch fetch with retry
 │   ├── search.py               Keyword / semantic / hybrid search engine
+│   ├── mcp_server.py           MCP server for Claude Desktop integration
 │   ├── py.typed                PEP 561 type-checking marker
 │   └── parsers/
 │       ├── __init__.py         Parser interface docs + re-exports
@@ -287,10 +325,11 @@ email-indexer/
 │   ├── run_indexer_claude.py   Wrapper for running from Claude conversations
 │   └── dump_email_html.py      Debug utility — save raw email HTML for inspection
 │
-├── tests/                      Pytest suite (111 tests)
+├── tests/                      Pytest suite (117 tests)
 │   ├── conftest.py             Shared fixtures and HTML builders
 │   ├── test_medium_parser.py   Medium parser unit + integration tests
 │   ├── test_email_parser.py    Generic email parsing tests
+│   ├── test_gmail_fetcher.py   Incremental fetch + email cache tests
 │   ├── test_indexer.py         Pipeline + merge metadata tests
 │   ├── test_tagger.py          Auto-tagger tests
 │   ├── test_store.py           Store persistence + dedup tests
@@ -299,7 +338,8 @@ email-indexer/
 ├── data/                       Generated — not committed (in .gitignore)
 │   └── <email_type>/
 │       ├── articles_index.json     Human-readable article list
-│       └── embeddings.npy          Float32 embedding matrix (N × D)
+│       ├── embeddings.npy          Float32 embedding matrix (N × D)
+│       └── raw_emails.json         Email cache for incremental fetching
 │
 ├── pyproject.toml              Project metadata, deps, pytest + coverage config
 ├── uv.lock                     Exact locked dependency versions (committed)
@@ -339,6 +379,21 @@ Each entry in `articles_index.json` looks like:
 ### Thread safety
 
 The 100 scraper threads only perform HTTP requests — all file I/O (JSON index + NumPy embeddings) happens sequentially on the main thread after scraping completes. The embedding engine uses a thread-safe lazy initialisation pattern (double-checked locking) in case embeddings are triggered from multiple threads in other usage contexts.
+
+### Incremental Indexing & Caching
+
+The indexer is designed for efficient incremental runs. Two layers of caching prevent redundant work:
+
+**Email-level caching** — When fetching from Gmail, the CLI passes a `save_path` (`data/<type>/raw_emails.json`) to `fetch_emails()`. On subsequent runs, already-fetched message IDs are read from this cache and skipped. Only genuinely new emails are downloaded from the Gmail API. The cache is written atomically (`.tmp` → rename) to prevent corruption.
+
+**Article-level dedup** — Even if the same email is reprocessed, `ArticleStore.is_duplicate()` checks both normalised URL and normalised title (for titles > 20 chars) before adding. This means re-running the indexer after a crash or with overlapping email batches will never create duplicate entries.
+
+The result: the first run downloads all emails and builds the full index (can take several minutes for thousands of emails). Every run after that completes in seconds, fetching only new emails that arrived since the last run.
+
+```
+First run:   Gmail API → 1,570 emails → 12,266 articles → ~7 min
+Second run:  Gmail API → 3 new emails → 24 new articles → ~5 sec
+```
 
 ### Deduplication
 
