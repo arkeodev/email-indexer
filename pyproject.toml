@@ -1,0 +1,105 @@
+[project]
+name = "email-indexer"
+version = "0.1.0"
+description = "Generic newsletter email indexer with keyword and semantic search"
+requires-python = ">=3.11"
+license = "MIT"
+readme = "README.md"
+authors = [
+    { name = "Kenan Agyel", email = "kenanagyel@gmail.com" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Email",
+    "Topic :: Text Processing :: Indexing",
+    "Typing :: Typed",
+]
+
+# Core — always installed
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "requests>=2.31",
+    "numpy>=1.26",
+    "python-dotenv>=1.0",
+    "rich>=13.0",
+    "google-auth>=2.0",
+    "google-auth-oauthlib>=1.0",
+    "google-api-python-client>=2.0",
+    "mcp[cli]>=1.0",
+]
+
+[project.optional-dependencies]
+# Article page scraping — richer metadata (requires a Firecrawl API key)
+scraping = ["firecrawl-py>=1.0"]
+
+# Local semantic search — downloads ~80 MB model on first use, no API key needed
+semantic = ["sentence-transformers>=3.0"]
+
+# OpenAI-backed embeddings instead of local model
+openai = ["openai>=1.0"]
+
+# MCP server for Claude integration
+mcp = ["mcp[cli]>=1.0"]
+
+# Install everything
+all = ["email-indexer[scraping,semantic,openai,mcp]"]
+
+# Development tools
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.urls]
+Repository = "https://github.com/kenanagyel/email-indexer"
+
+[project.scripts]
+email-indexer = "email_indexer.cli:main"
+email-indexer-search = "email_indexer.search_cli:interactive_mode"
+email-indexer-mcp = "email_indexer.mcp_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["email_indexer"]
+
+# ── pytest ────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "slow: marks tests that require network or large data (deselect with '-m \"not slow\"')",
+]
+
+# ── coverage ──────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["email_indexer"]
+omit = ["email_indexer/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+]
+
+# ── uv settings ───────────────────────────────────────────────────────────────
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
