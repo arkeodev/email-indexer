@@ -20,6 +20,9 @@ Built for Medium Daily Digest out of the box — designed to extend to any newsl
 - **Thread-safe embedding engine** — lazy-initialised singleton with double-checked locking for safe concurrent use
 - **MCP server** — exposes the article index to Claude Desktop as a searchable tool via the Model Context Protocol
 - **Incremental fetching** — email-level caching skips already-fetched Gmail messages; article-level dedup prevents duplicate index entries
+- **Gmail deep links** — every indexed article carries an `email_link` back to the original Gmail message for one-click access
+- **Email metadata as search context** — sender, subject, and date are injected into every article, enabling queries like "newsletter from X" or time-based lookups
+- **Raw-body fallback parser** — newsletters without structured article cards (e.g. Substack, TLDR) can be indexed as whole-email documents with `index_raw_email_body=True`
 - **uv** — fast dependency management with a committed lockfile
 
 ---
@@ -166,7 +169,11 @@ Gmail emails
      ▼
 email_parser.py          BeautifulSoup parses email HTML
      │                   → extracts article URLs + any available metadata
+     │                   → raw-body fallback for prose newsletters (opt-in)
      │                   → skipped links are logged at DEBUG level
+     ▼
+indexer.py               Injects email metadata into each article stub
+     │                   → email_link (Gmail deep link), sender, subject, date
      ▼
 scraper.py               Fetches each article page in parallel
      │                   → Firecrawl (structured) or requests + BS4 (fallback)
@@ -291,6 +298,23 @@ uv run python -m email_indexer.cli --type tldr_tech --input tldr_emails.json
 
 No other changes needed — the parser, scraper, tagger, and search all work with any config.
 
+#### Prose-heavy newsletters (no article cards)
+
+For newsletters that are just text (no structured article links), enable the raw-body fallback. The whole email becomes one indexed document — subject as title, cleaned body as `full_text`:
+
+```python
+SUBSTACK_DIGEST = EmailTypeConfig(
+    name="substack_digest",
+    display_name="Substack Digest",
+    gmail_search_query='from:substack.com',
+    url_include_pattern=r'https://.*\.substack\.com/',
+    url_exclude_pattern=r'(unsubscribe|manage)',
+    index_filename="substack_index.json",
+    index_raw_email_body=True,   # ← treats the whole email as one document
+    scrape_article_pages=False,
+)
+```
+
 Note on tag keywords: the tagger uses word-boundary matching by default, so `"react"` matches "React" but not "reacting". If you need whitespace-bounded matching (e.g. to avoid `"ai"` matching "email"), add leading/trailing spaces: `" ai "`.
 
 ---
@@ -325,12 +349,14 @@ email-indexer/
 │   ├── run_indexer_claude.py   Wrapper for running from Claude conversations
 │   └── dump_email_html.py      Debug utility — save raw email HTML for inspection
 │
-├── tests/                      Pytest suite (117 tests)
+├── tests/                      Pytest suite (164 tests)
 │   ├── conftest.py             Shared fixtures and HTML builders
 │   ├── test_medium_parser.py   Medium parser unit + integration tests
 │   ├── test_email_parser.py    Generic email parsing tests
+│   ├── test_email_metadata.py  Gmail deep links, raw-body fallback, email metadata tests
 │   ├── test_gmail_fetcher.py   Incremental fetch + email cache tests
 │   ├── test_indexer.py         Pipeline + merge metadata tests
+│   ├── test_search.py          Keyword scoring + configurable fields tests
 │   ├── test_tagger.py          Auto-tagger tests
 │   ├── test_store.py           Store persistence + dedup tests
 │   └── test_config.py          Config wiring tests
@@ -366,9 +392,15 @@ Each entry in `articles_index.json` looks like:
   "claps": "1200",
   "tags": ["AI", "LLM", "Agents", "Python"],
   "email_type": "medium_daily_digest",
-  "full_text": "... first 1500 chars of article content ..."
+  "full_text": "... first 1500 chars of article content ...",
+  "email_link": "https://mail.google.com/mail/u/0/#inbox/18f1a2b3c4d5e6f7",
+  "email_sender": "Medium Daily Digest <noreply@medium.com>",
+  "email_subject": "Stories for You — April 4, 2026",
+  "email_date": "Fri, 4 Apr 2026 08:00:00 +0000"
 }
 ```
+
+The `email_link`, `email_sender`, `email_subject`, and `email_date` fields are automatically injected from the source Gmail message. `email_link` is a direct deep-link to the original email in Gmail.
 
 `embeddings.npy` is a NumPy float32 array of shape `(N, D)` where N = number of articles and D = embedding dimension (384 for `all-MiniLM-L6-v2`, 1536 for `text-embedding-3-small`). Row `i` is the embedding for article `i` in the JSON list.
 
@@ -394,6 +426,12 @@ The result: the first run downloads all emails and builds the full index (can ta
 First run:   Gmail API → 1,570 emails → 12,266 articles → ~7 min
 Second run:  Gmail API → 3 new emails → 24 new articles → ~5 sec
 ```
+
+### Email Metadata & Provenance
+
+Every indexed article is enriched with metadata from its source Gmail message: `email_link` (a direct Gmail deep link), `email_sender`, `email_subject`, and `email_date`. These fields serve two purposes: they make articles searchable by sender or subject (both are included in the default keyword search fields with configurable weights), and they give users a way to trace any search result back to the original email in Gmail.
+
+For newsletters without structured article cards, the `index_raw_email_body` config flag enables a fallback mode: the entire email is indexed as a single document, with the subject as the title and the cleaned HTML body as `full_text`. This makes any newsletter immediately indexable without writing a custom parser.
 
 ### Deduplication
 

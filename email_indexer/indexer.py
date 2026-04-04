@@ -55,6 +55,31 @@ class IndexStats:
         )
 
 
+GMAIL_LINK_TEMPLATE = "https://mail.google.com/mail/u/0/#inbox/{msg_id}"
+
+
+def _inject_email_metadata(stubs: List[dict], email_obj: dict) -> None:
+    """Inject email-level metadata into each article stub.
+
+    Adds ``email_link`` (Gmail deep-link to the original message),
+    ``email_sender``, ``email_subject``, and ``email_date`` so that
+    every indexed article carries provenance back to its source email.
+    """
+    msg_id = email_obj.get("messageId", "")
+    headers = email_obj.get("headers", {})
+    meta = {
+        "email_link": GMAIL_LINK_TEMPLATE.format(msg_id=msg_id) if msg_id else "",
+        "email_sender": headers.get("from", ""),
+        "email_subject": headers.get("subject", ""),
+        "email_date": headers.get("date", ""),
+    }
+    for stub in stubs:
+        for key, val in meta.items():
+            # Don't overwrite if the stub already has a value (unlikely but safe)
+            if key not in stub or not stub[key]:
+                stub[key] = val
+
+
 def _merge_metadata(stub: dict, scraped: dict, config: EmailTypeConfig) -> dict:
     """
     Merge email-parsed stub with scraped data.
@@ -128,6 +153,9 @@ class Indexer:
         for email_obj in email_objects:
             try:
                 stubs = parse_email(email_obj, config)
+                # Enrich each stub with email-level metadata (Gmail link,
+                # sender, subject, date) for provenance tracking.
+                _inject_email_metadata(stubs, email_obj)
                 stats.emails_processed += 1
                 for stub in stubs:
                     url = stub.get("url", "").strip()

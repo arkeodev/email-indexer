@@ -83,6 +83,56 @@ def get_html_body(email_obj: dict) -> str:
     return ""
 
 
+# ── Text extraction ────────────────────────────────────────────────────────
+
+def clean_text_from_html(html: str) -> str:
+    """Strip HTML tags and collapse whitespace to produce readable plain text.
+
+    Used by the raw-email-body fallback to turn a newsletter's HTML into
+    searchable ``full_text``.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Remove script/style tags entirely
+    for tag in soup(["script", "style", "head"]):
+        tag.decompose()
+
+    text = soup.get_text(separator=" ", strip=True)
+
+    # Collapse runs of whitespace / newlines
+    import re as _re
+    text = _re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _parse_email_as_document(email_obj: dict, html: str) -> List[dict]:
+    """Fallback: treat the entire email as a single indexed document.
+
+    Uses the email subject as the title and the cleaned HTML body as
+    ``full_text``.  Returns a one-element list (one "article" per email)
+    or [] if the body is too short to be useful.
+    """
+    headers = email_obj.get("headers", {})
+    subject = headers.get("subject", "").strip()
+    if not subject:
+        subject = email_obj.get("snippet", "")[:120] or "(no subject)"
+
+    body_text = clean_text_from_html(html)
+    if len(body_text) < 50:
+        return []
+
+    # Build a pseudo-URL from the message ID so the dedup logic works
+    msg_id = email_obj.get("messageId", "")
+    url = f"email://{msg_id}" if msg_id else ""
+
+    return [{
+        "url": url,
+        "title": subject,
+        "full_text": body_text,
+        "description": body_text[:300],
+    }]
+
+
 # ── URL extraction ─────────────────────────────────────────────────────────
 
 def extract_article_urls(html: str, config: EmailTypeConfig) -> List[str]:
@@ -139,4 +189,11 @@ def parse_email(email_obj: dict, config: EmailTypeConfig) -> List[dict]:
 
     # 2. Fall back: just collect URLs
     urls = extract_article_urls(html, config)
-    return [{"url": u} for u in urls]
+    if urls:
+        return [{"url": u} for u in urls]
+
+    # 3. Last resort: index the whole email as one document (opt-in)
+    if config.index_raw_email_body:
+        return _parse_email_as_document(email_obj, html)
+
+    return []

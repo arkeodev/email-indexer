@@ -131,6 +131,8 @@ def _format_article_markdown(article: dict, rank: int, display_fields: List[tupl
                 continue
             if field_name == "description":
                 desc_text = str(val)[:200]
+            elif field_name == "email_link":
+                lines.append(f"[View original email]({val})")
             elif isinstance(val, list):
                 byline_parts.append(" ".join(str(v) for v in val))
             else:

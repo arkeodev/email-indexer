@@ -11,12 +11,14 @@ from typing import Callable, Dict, FrozenSet, List, Optional, Tuple
 # Default searchable fields: (field_name, weight)
 # Higher weight → more influence on keyword search ranking.
 DEFAULT_SEARCH_FIELDS: List[Tuple[str, float]] = [
-    ("title",       3.0),
-    ("tags",        2.5),
-    ("description", 2.0),
-    ("author",      1.5),
-    ("publication", 1.5),
-    ("full_text",   1.0),
+    ("title",         3.0),
+    ("tags",          2.5),
+    ("description",   2.0),
+    ("author",        1.5),
+    ("publication",   1.5),
+    ("full_text",     1.0),
+    ("email_subject", 1.0),
+    ("email_sender",  0.5),
 ]
 
 # Default fields shown in search results: (field_name, label)
@@ -28,6 +30,8 @@ DEFAULT_DISPLAY_FIELDS: List[Tuple[str, str]] = [
     ("description", "Description"),
     ("read_time",   "Read time"),
     ("tags",        "Tags"),
+    ("email_link",  "Email"),
+    ("email_date",  "Date"),
 ]
 
 
@@ -86,6 +90,13 @@ class EmailTypeConfig:
     # Gmail API headers to extract beyond the standard From/To/Subject/Date.
     # Useful for newsletter-specific headers like List-Id, X-Campaign-Id, etc.
     extra_headers: List[str] = field(default_factory=list)
+
+    # ── Raw email body fallback ──────────────────────────────────────────
+    # When True and the custom parser / URL extraction yields nothing,
+    # the whole email is indexed as a single document: subject → title,
+    # cleaned body text → full_text.  Ideal for prose-heavy newsletters
+    # that aren't structured as article cards (e.g. Substack, TLDR).
+    index_raw_email_body: bool = False
 
 
 # ── Pre-built configs ──────────────────────────────────────────────────────
