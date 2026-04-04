@@ -57,7 +57,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/kenanagyel/email-indexer"
+Repository = "https://github.com/arkeodev/email-indexer"
 
 [project.scripts]
 email-indexer = "email_indexer.cli:main"
