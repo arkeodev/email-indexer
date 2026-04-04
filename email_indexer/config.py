@@ -5,7 +5,30 @@ changing any other code.
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, FrozenSet, List, Optional
+from typing import Callable, Dict, FrozenSet, List, Optional, Tuple
+
+
+# Default searchable fields: (field_name, weight)
+# Higher weight → more influence on keyword search ranking.
+DEFAULT_SEARCH_FIELDS: List[Tuple[str, float]] = [
+    ("title",       3.0),
+    ("tags",        2.5),
+    ("description", 2.0),
+    ("author",      1.5),
+    ("publication", 1.5),
+    ("full_text",   1.0),
+]
+
+# Default fields shown in search results: (field_name, label)
+DEFAULT_DISPLAY_FIELDS: List[Tuple[str, str]] = [
+    ("title",       "Title"),
+    ("url",         "URL"),
+    ("author",      "Author"),
+    ("publication", "Publication"),
+    ("description", "Description"),
+    ("read_time",   "Read time"),
+    ("tags",        "Tags"),
+]
 
 
 @dataclass
@@ -44,6 +67,25 @@ class EmailTypeConfig:
     # Publication names that the scraper might return from og:site_name
     # but should be discarded (e.g. the platform name itself).
     publication_ignore: FrozenSet[str] = field(default_factory=frozenset)
+
+    # ── Search & display ─────────────────────────────────────────────────
+    # Fields used for keyword scoring. Each tuple is (field_name, weight).
+    # The "tags" field is special — it joins the list with spaces before matching.
+    # Override this to add newsletter-specific fields (e.g. "summary", "category").
+    search_fields: List[Tuple[str, float]] = field(
+        default_factory=lambda: list(DEFAULT_SEARCH_FIELDS)
+    )
+
+    # Fields shown in search results. Each tuple is (field_name, label).
+    # Override to add or reorder fields for different newsletter types.
+    display_fields: List[Tuple[str, str]] = field(
+        default_factory=lambda: list(DEFAULT_DISPLAY_FIELDS)
+    )
+
+    # ── Extra email headers to capture ───────────────────────────────────
+    # Gmail API headers to extract beyond the standard From/To/Subject/Date.
+    # Useful for newsletter-specific headers like List-Id, X-Campaign-Id, etc.
+    extra_headers: List[str] = field(default_factory=list)
 
 
 # ── Pre-built configs ──────────────────────────────────────────────────────

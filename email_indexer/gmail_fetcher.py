@@ -118,16 +118,20 @@ def _decode_body(payload: dict) -> str:
     return ""
 
 
-def _message_to_dict(msg: dict) -> dict:
+def _message_to_dict(msg: dict, extra_headers: Optional[List[str]] = None) -> dict:
     """Convert a raw Gmail API message to the same shape as the MCP tool response.
 
     Preserves the original payload structure from the Gmail API instead of
     re-encoding the body, which avoids unnecessary base64 round-trips.
+
+    Args:
+        extra_headers: Additional header names to capture beyond the standard
+                       From/To/Subject/Date (e.g. ["List-Id", "X-Mailer"]).
     """
     payload = msg.get("payload", {})
     headers = {h["name"]: h["value"] for h in payload.get("headers", [])}
 
-    return {
+    result = {
         "messageId": msg["id"],
         "threadId": msg.get("threadId", ""),
         "payload": payload,  # pass through original payload (already base64-encoded)
@@ -139,6 +143,15 @@ def _message_to_dict(msg: dict) -> dict:
         },
         "snippet": msg.get("snippet", ""),
     }
+
+    # Capture any extra headers requested by the email type config
+    if extra_headers:
+        for hdr in extra_headers:
+            val = headers.get(hdr, "")
+            if val:
+                result["headers"][hdr.lower().replace("-", "_")] = val
+
+    return result
 
 
 def fetch_emails(

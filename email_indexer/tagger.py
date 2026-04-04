@@ -30,18 +30,41 @@ def _make_pattern(keyword: str) -> re.Pattern:
     return re.compile(r"\b" + escaped + r"\b", re.IGNORECASE)
 
 
-def assign_tags(article: dict, tags_config: Dict[str, List[str]]) -> List[str]:
+def _build_corpus(article: dict, extra_fields: List[str] = None) -> str:
+    """Build a single text corpus from an article for tag matching.
+
+    Always includes title, description, full_text, publication, and scraped_tags.
+    Pass extra_fields to include newsletter-specific fields (e.g. "summary", "category").
     """
-    Return a list of tag strings that match the article content.
-    Matching uses word-boundary-aware regex to prevent false positives.
-    """
-    corpus = " ".join(filter(None, [
+    parts = [
         article.get("title", ""),
         article.get("description", ""),
         article.get("full_text", ""),
         article.get("publication", ""),
         " ".join(article.get("scraped_tags", [])),
-    ]))
+    ]
+    for f in (extra_fields or []):
+        val = article.get(f)
+        if val:
+            parts.append(" ".join(val) if isinstance(val, list) else str(val))
+    return " ".join(filter(None, parts))
+
+
+def assign_tags(
+    article: dict,
+    tags_config: Dict[str, List[str]],
+    extra_fields: List[str] = None,
+) -> List[str]:
+    """
+    Return a list of tag strings that match the article content.
+    Matching uses word-boundary-aware regex to prevent false positives.
+
+    Args:
+        extra_fields: Additional article fields to include in the matching
+                      corpus (e.g. ["summary", "category"] for a newsletter
+                      that provides those fields).
+    """
+    corpus = _build_corpus(article, extra_fields)
 
     matched = []
     for tag, keywords in tags_config.items():

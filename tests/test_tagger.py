@@ -112,3 +112,31 @@ class TestAssignTags:
         article = {"title": "Python ML Tutorial"}
         tags = assign_tags(article, {})
         assert tags == []
+
+    def test_extra_fields_string(self, tags_config):
+        """extra_fields should include custom string fields in the corpus."""
+        article = {"title": "A Newsletter Issue", "summary": "Deep dive into python frameworks"}
+        # Without extra_fields, "python" is only in summary which isn't searched
+        tags_without = assign_tags(article, tags_config)
+        assert "Python" not in tags_without
+        # With extra_fields, summary is included
+        tags_with = assign_tags(article, tags_config, extra_fields=["summary"])
+        assert "Python" in tags_with
+
+    def test_extra_fields_list(self, tags_config):
+        """extra_fields should handle list-type fields correctly."""
+        article = {"title": "Issue 42", "categories": ["python", "data science"]}
+        tags = assign_tags(article, tags_config, extra_fields=["categories"])
+        assert "Python" in tags
+
+    def test_extra_fields_none_is_safe(self, tags_config):
+        """Passing None for extra_fields should work like the default."""
+        article = {"title": "Introduction to Machine Learning"}
+        tags = assign_tags(article, tags_config, extra_fields=None)
+        assert "AI" in tags
+
+    def test_extra_fields_missing_field_is_safe(self, tags_config):
+        """Referencing a field that doesn't exist on the article should not crash."""
+        article = {"title": "Python Basics"}
+        tags = assign_tags(article, tags_config, extra_fields=["nonexistent_field"])
+        assert "Python" in tags

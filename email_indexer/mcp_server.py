@@ -83,35 +83,77 @@ def _get_searcher(email_type: str = DEFAULT_EMAIL_TYPE):
 _searcher_cache: Dict[str, object] = {}
 
 
+def _get_display_fields(email_type: str = DEFAULT_EMAIL_TYPE) -> List[tuple]:
+    """Get the display_fields config for a given email type."""
+    try:
+        from .config import EMAIL_TYPE_REGISTRY, DEFAULT_DISPLAY_FIELDS
+        config = EMAIL_TYPE_REGISTRY.get(email_type)
+        return config.display_fields if config else DEFAULT_DISPLAY_FIELDS
+    except Exception:
+        from .config import DEFAULT_DISPLAY_FIELDS
+        return DEFAULT_DISPLAY_FIELDS
+
+
+def _get_search_fields(email_type: str = DEFAULT_EMAIL_TYPE) -> List[tuple]:
+    """Get the search_fields config for a given email type."""
+    try:
+        from .config import EMAIL_TYPE_REGISTRY, DEFAULT_SEARCH_FIELDS
+        config = EMAIL_TYPE_REGISTRY.get(email_type)
+        return config.search_fields if config else DEFAULT_SEARCH_FIELDS
+    except Exception:
+        from .config import DEFAULT_SEARCH_FIELDS
+        return DEFAULT_SEARCH_FIELDS
+
+
 # ── Shared formatting helpers ────────────────────────────────────────────────
 
 
-def _format_article_markdown(article: dict, rank: int) -> str:
-    """Format a single article result as Markdown."""
+def _format_article_markdown(article: dict, rank: int, display_fields: List[tuple] = None) -> str:
+    """Format a single article result as Markdown using display_fields config."""
     title = article.get("title", "(no title)")
-    url = article.get("url", "")
-    author = article.get("author", "")
-    pub = article.get("publication", "")
-    desc = article.get("description", "")
-    read_time = article.get("read_time", "")
-    tags = ", ".join(article.get("tags", [])) or "—"
     score = article.get("_score") or article.get("_similarity") or 0
-
-    byline_parts = [p for p in [author, pub, read_time] if p]
-    byline = " · ".join(byline_parts)
-
     lines = [f"### {rank}. {title}"]
+
+    # URL always shown as a link if present
+    url = article.get("url", "")
     if url:
         lines.append(f"[Read article]({url})")
-    if byline:
-        lines.append(f"*{byline}*")
-    if desc:
-        lines.append(desc[:200])
+
+    # Build byline from display fields that are short metadata (not title/url/tags/description)
+    if display_fields:
+        byline_parts = []
+        desc_text = ""
+        for field_name, label in display_fields:
+            if field_name in ("title", "url", "tags"):
+                continue
+            val = article.get(field_name)
+            if not val:
+                continue
+            if field_name == "description":
+                desc_text = str(val)[:200]
+            elif isinstance(val, list):
+                byline_parts.append(" ".join(str(v) for v in val))
+            else:
+                byline_parts.append(str(val))
+        if byline_parts:
+            lines.append(f"*{' · '.join(byline_parts)}*")
+        if desc_text:
+            lines.append(desc_text)
+    else:
+        # Fallback to hardcoded Medium fields
+        byline_parts = [p for p in [article.get("author", ""), article.get("publication", ""), article.get("read_time", "")] if p]
+        if byline_parts:
+            lines.append(f"*{' · '.join(byline_parts)}*")
+        desc = article.get("description", "")
+        if desc:
+            lines.append(desc[:200])
+
+    tags = ", ".join(article.get("tags", [])) or "—"
     lines.append(f"Tags: {tags} | Relevance: {score:.3f}")
     return "\n".join(lines)
 
 
-def _format_results(articles: List[dict], query: str, mode: str, total_indexed: int) -> str:
+def _format_results(articles: List[dict], query: str, mode: str, total_indexed: int, display_fields: List[tuple] = None) -> str:
     """Format a list of search results as Markdown."""
     if not articles:
         return f"No articles found for \"{query}\" (searched {total_indexed:,} articles with {mode} mode)."
@@ -121,26 +163,28 @@ def _format_results(articles: List[dict], query: str, mode: str, total_indexed: 
         f"*Search mode: {mode} · Index: {total_indexed:,} articles*\n"
     )
     body = "\n\n".join(
-        _format_article_markdown(a, i)
+        _format_article_markdown(a, i, display_fields=display_fields)
         for i, a in enumerate(articles, 1)
     )
     return f"{header}\n{body}"
 
 
-def _format_results_json(articles: List[dict], query: str, mode: str, total_indexed: int) -> str:
+def _format_results_json(articles: List[dict], query: str, mode: str, total_indexed: int, display_fields: List[tuple] = None) -> str:
     """Format results as machine-readable JSON."""
     clean_articles = []
+    # Build the field list from display_fields config
+    if display_fields:
+        field_names = [f for f, _ in display_fields]
+    else:
+        field_names = ["title", "url", "author", "publication", "description", "read_time", "tags"]
+
     for a in articles:
-        clean_articles.append({
-            "title": a.get("title", ""),
-            "url": a.get("url", ""),
-            "author": a.get("author", ""),
-            "publication": a.get("publication", ""),
-            "description": a.get("description", ""),
-            "read_time": a.get("read_time", ""),
-            "tags": a.get("tags", []),
-            "score": a.get("_score") or a.get("_similarity") or 0,
-        })
+        entry = {}
+        for f in field_names:
+            entry[f] = a.get(f, "" if f != "tags" else [])
+        entry["score"] = a.get("_score") or a.get("_similarity") or 0
+        clean_articles.append(entry)
+
     result = {
         "query": query,
         "mode": mode,
@@ -274,16 +318,20 @@ async def email_indexer_search(params: SearchArticlesInput) -> str:
     if searcher is None:
         return "Error: Article index not found. Run `email-indexer` first to index your emails."
 
+    search_fields = _get_search_fields()
+    display_fields = _get_display_fields()
+
     results = searcher.keyword_search(
         query=params.query,
         top_k=params.top_k,
         tags=params.tags,
+        search_fields=search_fields,
     )
 
     total = searcher.article_count
     if params.response_format == ResponseFormat.JSON:
-        return _format_results_json(results, params.query, "keyword", total)
-    return _format_results(results, params.query, "keyword", total)
+        return _format_results_json(results, params.query, "keyword", total, display_fields=display_fields)
+    return _format_results(results, params.query, "keyword", total, display_fields=display_fields)
 
 
 @mcp.tool(

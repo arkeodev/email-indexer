@@ -1,8 +1,9 @@
 """
-Tests for email_indexer.gmail_fetcher — email ID dedup and incremental fetching.
+Tests for email_indexer.gmail_fetcher — email ID dedup, incremental fetching, and extra headers.
 
 These tests mock the Gmail API service to verify that:
   - fetch_emails with save_path skips already-fetched message IDs
+  - _message_to_dict captures extra headers when requested
   - The raw email cache file is written and updated correctly
   - New runs only fetch emails not already in the cache
 """
@@ -186,3 +187,98 @@ class TestCliEmailCacheWiring:
         source = inspect.getsource(run_from_gmail)
         assert "save_path=email_cache_path" in source
         assert "raw_emails.json" in source
+
+
+class TestMessageToDict:
+    """Test _message_to_dict header extraction."""
+
+    def test_standard_headers(self):
+        """Standard From/To/Subject/Date headers are always captured."""
+        from email_indexer.gmail_fetcher import _message_to_dict
+
+        msg = {
+            "id": "msg-001",
+            "threadId": "thread-001",
+            "snippet": "Test snippet",
+            "payload": {
+                "mimeType": "text/html",
+                "headers": [
+                    {"name": "From", "value": "sender@example.com"},
+                    {"name": "To", "value": "me@example.com"},
+                    {"name": "Subject", "value": "Test Subject"},
+                    {"name": "Date", "value": "Sat, 4 Apr 2026 10:00:00 +0000"},
+                ],
+                "body": {"data": ""},
+            },
+        }
+        result = _message_to_dict(msg)
+        assert result["headers"]["from"] == "sender@example.com"
+        assert result["headers"]["subject"] == "Test Subject"
+        assert result["messageId"] == "msg-001"
+
+    def test_extra_headers_captured(self):
+        """Extra headers specified in the list are captured with normalized keys."""
+        from email_indexer.gmail_fetcher import _message_to_dict
+
+        msg = {
+            "id": "msg-002",
+            "payload": {
+                "mimeType": "text/html",
+                "headers": [
+                    {"name": "From", "value": "news@example.com"},
+                    {"name": "To", "value": "me@example.com"},
+                    {"name": "Subject", "value": "Newsletter #42"},
+                    {"name": "Date", "value": "Sat, 4 Apr 2026 10:00:00 +0000"},
+                    {"name": "List-Id", "value": "<newsletter.example.com>"},
+                    {"name": "X-Campaign-Id", "value": "camp-12345"},
+                    {"name": "X-Mailer", "value": "MailChimp"},
+                ],
+                "body": {"data": ""},
+            },
+        }
+        result = _message_to_dict(msg, extra_headers=["List-Id", "X-Campaign-Id", "X-Mailer"])
+        assert result["headers"]["list_id"] == "<newsletter.example.com>"
+        assert result["headers"]["x_campaign_id"] == "camp-12345"
+        assert result["headers"]["x_mailer"] == "MailChimp"
+
+    def test_extra_headers_missing_are_skipped(self):
+        """Extra headers that don't exist in the email are silently skipped."""
+        from email_indexer.gmail_fetcher import _message_to_dict
+
+        msg = {
+            "id": "msg-003",
+            "payload": {
+                "mimeType": "text/html",
+                "headers": [
+                    {"name": "From", "value": "test@test.com"},
+                    {"name": "Subject", "value": "Test"},
+                    {"name": "To", "value": "me@test.com"},
+                    {"name": "Date", "value": "Sat, 4 Apr 2026"},
+                ],
+                "body": {"data": ""},
+            },
+        }
+        result = _message_to_dict(msg, extra_headers=["List-Id", "X-Nonexistent"])
+        assert "list_id" not in result["headers"]
+        assert "x_nonexistent" not in result["headers"]
+
+    def test_no_extra_headers(self):
+        """Without extra_headers, only standard headers are present."""
+        from email_indexer.gmail_fetcher import _message_to_dict
+
+        msg = {
+            "id": "msg-004",
+            "payload": {
+                "mimeType": "text/html",
+                "headers": [
+                    {"name": "From", "value": "test@test.com"},
+                    {"name": "Subject", "value": "Test"},
+                    {"name": "To", "value": "me@test.com"},
+                    {"name": "Date", "value": "Sat, 4 Apr 2026"},
+                    {"name": "List-Id", "value": "should-not-appear"},
+                ],
+                "body": {"data": ""},
+            },
+        }
+        result = _message_to_dict(msg)
+        assert set(result["headers"].keys()) == {"from", "to", "subject", "date"}

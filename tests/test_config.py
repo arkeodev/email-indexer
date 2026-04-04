@@ -4,7 +4,13 @@ Tests for email_indexer.config — email type configuration and registry.
 
 import pytest
 
-from email_indexer.config import EMAIL_TYPE_REGISTRY, MEDIUM_DAILY_DIGEST, EmailTypeConfig
+from email_indexer.config import (
+    DEFAULT_DISPLAY_FIELDS,
+    DEFAULT_SEARCH_FIELDS,
+    EMAIL_TYPE_REGISTRY,
+    MEDIUM_DAILY_DIGEST,
+    EmailTypeConfig,
+)
 
 
 class TestEmailTypeConfig:
@@ -48,6 +54,79 @@ class TestEmailTypeConfig:
         assert config.email_html_parser is None
         assert config.publication_ignore == frozenset()
         assert config.tags_config == {}
+        # New configurable fields should have defaults
+        assert config.search_fields == DEFAULT_SEARCH_FIELDS
+        assert config.display_fields == DEFAULT_DISPLAY_FIELDS
+        assert config.extra_headers == []
+
+    def test_custom_search_fields(self):
+        """Newsletter types can override search fields with custom weights."""
+        custom_fields = [
+            ("title", 3.0),
+            ("summary", 2.5),
+            ("category", 2.0),
+        ]
+        config = EmailTypeConfig(
+            name="custom",
+            display_name="Custom",
+            gmail_search_query="from:test@test.com",
+            url_include_pattern=r"",
+            url_exclude_pattern=r"",
+            index_filename="custom.json",
+            search_fields=custom_fields,
+        )
+        assert config.search_fields == custom_fields
+        assert ("summary", 2.5) in config.search_fields
+
+    def test_custom_display_fields(self):
+        """Newsletter types can override which fields are shown in results."""
+        custom_display = [
+            ("title", "Title"),
+            ("url", "URL"),
+            ("category", "Category"),
+            ("summary", "Summary"),
+        ]
+        config = EmailTypeConfig(
+            name="custom",
+            display_name="Custom",
+            gmail_search_query="from:test@test.com",
+            url_include_pattern=r"",
+            url_exclude_pattern=r"",
+            index_filename="custom.json",
+            display_fields=custom_display,
+        )
+        assert config.display_fields == custom_display
+        field_names = [f for f, _ in config.display_fields]
+        assert "category" in field_names
+        assert "summary" in field_names
+
+    def test_extra_headers(self):
+        """Newsletter types can request extra email headers to capture."""
+        config = EmailTypeConfig(
+            name="custom",
+            display_name="Custom",
+            gmail_search_query="from:test@test.com",
+            url_include_pattern=r"",
+            url_exclude_pattern=r"",
+            index_filename="custom.json",
+            extra_headers=["List-Id", "X-Campaign-Id"],
+        )
+        assert config.extra_headers == ["List-Id", "X-Campaign-Id"]
+
+    def test_search_fields_independent_across_instances(self):
+        """Each config instance should have its own copy of search_fields."""
+        config_a = EmailTypeConfig(
+            name="a", display_name="A", gmail_search_query="",
+            url_include_pattern="", url_exclude_pattern="",
+            index_filename="a.json",
+        )
+        config_b = EmailTypeConfig(
+            name="b", display_name="B", gmail_search_query="",
+            url_include_pattern="", url_exclude_pattern="",
+            index_filename="b.json",
+        )
+        config_a.search_fields.append(("custom_field", 5.0))
+        assert ("custom_field", 5.0) not in config_b.search_fields
 
     def test_registry_lookup(self):
         config = EMAIL_TYPE_REGISTRY["medium_daily_digest"]

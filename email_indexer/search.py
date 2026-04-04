@@ -32,24 +32,45 @@ from typing import List, Optional
 
 import numpy as np
 
+from .config import DEFAULT_SEARCH_FIELDS
 from .embeddings import engine as embedding_engine, load_embeddings
 
 logger = logging.getLogger(__name__)
 
 
-def _score_keyword(article: dict, tokens: List[str]) -> float:
-    """Simple TF-style score: sum of token hit counts across weighted fields."""
-    corpus = {
-        "title":       (article.get("title", "") or "", 3.0),
-        "tags":        (" ".join(article.get("tags", [])), 2.5),
-        "description": (article.get("description", "") or "", 2.0),
-        "author":      (article.get("author", "") or "", 1.5),
-        "publication": (article.get("publication", "") or "", 1.5),
-        "full_text":   ((article.get("full_text", "") or "")[:1000], 1.0),
-    }
+def _get_field_text(article: dict, field_name: str) -> str:
+    """Extract text from an article field, handling lists and truncating full_text."""
+    val = article.get(field_name)
+    if val is None:
+        return ""
+    if isinstance(val, list):
+        return " ".join(str(v) for v in val)
+    text = str(val)
+    # Truncate very long fields to keep scoring fast
+    if field_name == "full_text":
+        return text[:1000]
+    return text
+
+
+def _score_keyword(
+    article: dict,
+    tokens: List[str],
+    search_fields: Optional[List[tuple]] = None,
+) -> float:
+    """Simple TF-style score: sum of token hit counts across weighted fields.
+
+    Args:
+        article: Article dict to score.
+        tokens: Lowercased search tokens.
+        search_fields: List of (field_name, weight) tuples. If None, uses
+                       DEFAULT_SEARCH_FIELDS from config.
+    """
+    if search_fields is None:
+        search_fields = DEFAULT_SEARCH_FIELDS
+
     score = 0.0
-    for field, (text, weight) in corpus.items():
-        text_lower = text.lower()
+    for field_name, weight in search_fields:
+        text_lower = _get_field_text(article, field_name).lower()
         for tok in tokens:
             if tok in text_lower:
                 score += weight
@@ -114,10 +135,15 @@ class ArticleSearcher:
         top_k: int = 10,
         tags: Optional[List[str]] = None,
         email_type: Optional[str] = None,
+        search_fields: Optional[List[tuple]] = None,
     ) -> List[dict]:
         """
         Score every article by keyword overlap with the query.
         Optionally pre-filter by tag list or email_type.
+
+        Args:
+            search_fields: Override the default (field_name, weight) pairs for
+                           scoring. Useful for newsletter types with custom fields.
         """
         tokens = re.findall(r"\w+", query.lower())
         if not tokens:
@@ -134,7 +160,7 @@ class ArticleSearcher:
             ]
 
         scored = [
-            (a, _score_keyword(a, tokens))
+            (a, _score_keyword(a, tokens, search_fields=search_fields))
             for a in candidates
         ]
         scored.sort(key=lambda x: x[1], reverse=True)
@@ -205,6 +231,7 @@ class ArticleSearcher:
         semantic_weight: float = 0.7,
         tags: Optional[List[str]] = None,
         email_type: Optional[str] = None,
+        search_fields: Optional[List[tuple]] = None,
     ) -> List[dict]:
         """
         Combine semantic similarity and keyword scores.
@@ -213,7 +240,7 @@ class ArticleSearcher:
           1.0 = pure semantic, 0.0 = pure keyword
         """
         if self._embeddings is None or not embedding_engine.is_enabled:
-            return self.keyword_search(query, top_k=top_k, tags=tags, email_type=email_type)
+            return self.keyword_search(query, top_k=top_k, tags=tags, email_type=email_type, search_fields=search_fields)
 
         tokens = re.findall(r"\w+", query.lower())
 
@@ -248,7 +275,7 @@ class ArticleSearcher:
             sem_norm = np.zeros_like(sem_sims)
 
         # Keyword scores over candidates — also min-max normalised
-        kw_scores = np.array([_score_keyword(a, tokens) for a in candidates], dtype=np.float32)
+        kw_scores = np.array([_score_keyword(a, tokens, search_fields=search_fields) for a in candidates], dtype=np.float32)
         k_min, k_max = float(kw_scores.min()), float(kw_scores.max())
         if k_max > k_min:
             kw_norm = (kw_scores - k_min) / (k_max - k_min)
@@ -267,11 +294,11 @@ class ArticleSearcher:
 
     # ── convenience ───────────────────────────────────────────────────────
 
-    def search(self, query: str, top_k: int = 10, **kwargs) -> List[dict]:
+    def search(self, query: str, top_k: int = 10, search_fields: Optional[List[tuple]] = None, **kwargs) -> List[dict]:
         """Auto-selects hybrid search if embeddings are available, else keyword."""
         if self._embeddings is not None and embedding_engine.is_enabled:
-            return self.hybrid_search(query, top_k=top_k, **kwargs)
-        return self.keyword_search(query, top_k=top_k, **kwargs)
+            return self.hybrid_search(query, top_k=top_k, search_fields=search_fields, **kwargs)
+        return self.keyword_search(query, top_k=top_k, search_fields=search_fields, **kwargs)
 
     @property
     def article_count(self) -> int:
