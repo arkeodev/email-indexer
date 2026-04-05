@@ -5,11 +5,14 @@ Tests for email_indexer.config — email type configuration and registry.
 import pytest
 
 from email_indexer.config import (
+    ALL_EMAIL_TYPES,
     DEFAULT_DISPLAY_FIELDS,
     DEFAULT_SEARCH_FIELDS,
     EMAIL_TYPE_REGISTRY,
     MEDIUM_DAILY_DIGEST,
     EmailTypeConfig,
+    get_unified_display_fields,
+    get_unified_search_fields,
 )
 
 
@@ -131,6 +134,49 @@ class TestEmailTypeConfig:
     def test_registry_lookup(self):
         config = EMAIL_TYPE_REGISTRY["medium_daily_digest"]
         assert config is MEDIUM_DAILY_DIGEST
+
+
+class TestUnifiedFields:
+    """Tests for the multi-index helper functions."""
+
+    def test_all_email_types_sentinel(self):
+        assert ALL_EMAIL_TYPES == "all"
+
+    def test_unified_display_fields_has_source(self):
+        """Unified display fields should always start with a 'source' column."""
+        fields = get_unified_display_fields()
+        assert fields[0] == ("source", "Source")
+
+    def test_unified_display_fields_superset(self):
+        """Unified fields should contain every field from every registered type."""
+        unified_names = {f for f, _ in get_unified_display_fields()}
+        for config in EMAIL_TYPE_REGISTRY.values():
+            for field_name, _ in config.display_fields:
+                assert field_name in unified_names, (
+                    f"Field '{field_name}' from {config.name} missing in unified fields"
+                )
+
+    def test_unified_display_fields_no_duplicates(self):
+        fields = get_unified_display_fields()
+        names = [f for f, _ in fields]
+        assert len(names) == len(set(names))
+
+    def test_unified_search_fields_max_weight(self):
+        """For each field, the unified weight should be the max across all types."""
+        unified = dict(get_unified_search_fields())
+        for config in EMAIL_TYPE_REGISTRY.values():
+            for field_name, weight in config.search_fields:
+                assert unified[field_name] >= weight, (
+                    f"Unified weight for '{field_name}' ({unified[field_name]}) "
+                    f"is less than {config.name}'s weight ({weight})"
+                )
+
+    def test_unified_search_fields_superset(self):
+        """Every search field from every type should appear in the unified set."""
+        unified_names = {f for f, _ in get_unified_search_fields()}
+        for config in EMAIL_TYPE_REGISTRY.values():
+            for field_name, _ in config.search_fields:
+                assert field_name in unified_names
 
 
 class TestMediumParserWiring:

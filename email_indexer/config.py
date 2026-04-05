@@ -10,6 +10,9 @@ from typing import Callable, Dict, FrozenSet, List, Optional, Tuple
 
 # Default searchable fields: (field_name, weight)
 # Higher weight → more influence on keyword search ranking.
+# Note: email_subject and email_sender are intentionally excluded —
+# they are shared across all articles in a digest email, so including
+# them causes false positives (every sibling article matches).
 DEFAULT_SEARCH_FIELDS: List[Tuple[str, float]] = [
     ("title",         3.0),
     ("tags",          2.5),
@@ -17,8 +20,6 @@ DEFAULT_SEARCH_FIELDS: List[Tuple[str, float]] = [
     ("author",        1.5),
     ("publication",   1.5),
     ("full_text",     1.0),
-    ("email_subject", 1.0),
-    ("email_sender",  0.5),
 ]
 
 # Default fields shown in search results: (field_name, label)
@@ -107,6 +108,11 @@ def _get_medium_parser():
     return medium_email_html_parser
 
 
+def _get_daily_dose_parser():
+    from .parsers.daily_dose import daily_dose_email_html_parser
+    return daily_dose_email_html_parser
+
+
 MEDIUM_DAILY_DIGEST = EmailTypeConfig(
     name="medium_daily_digest",
     display_name="Medium Daily Digest",
@@ -169,11 +175,121 @@ MEDIUM_DAILY_DIGEST = EmailTypeConfig(
 )
 
 
+DAILY_DOSE_OF_DS = EmailTypeConfig(
+    name="daily_dose_of_ds",
+    display_name="Daily Dose of Data Science",
+    gmail_search_query="from:avi@dailydoseofds.com",
+    # The parser decodes ConvertKit tracking URLs itself, so we use a
+    # permissive include pattern that won't match raw tracking hrefs
+    # (the custom parser runs first).  These patterns are only used by
+    # the generic URL-extraction fallback.
+    url_include_pattern=r"https?://",
+    url_exclude_pattern=(
+        r"dailydoseofds\.com/membership"
+        r"|kit-mail[23]\.com"
+        r"|convertkit"
+        r"|preferences\."
+        r"|unsubscribe\."
+    ),
+    index_filename="daily_dose_ds_index.json",
+    email_html_parser=_get_daily_dose_parser(),
+    scrape_article_pages=False,  # articles are summarized in the email
+    publication_ignore=frozenset({"Daily Dose of Data Science", ""}),
+    tags_config={
+        "AI": [
+            "artificial intelligence", "machine learning", "neural network",
+            "deep learning", " ai ", "chatgpt", "gpt", "llm", "generative",
+            "diffusion model", "openai", "anthropic",
+        ],
+        "LLM": [
+            "large language model", "llm", "gpt-4", "claude", "llama",
+            "mistral", "gemini", "prompt engineer", "rag", "retrieval augmented",
+            "fine-tun", "fine tun",
+        ],
+        "Agents": [
+            "ai agent", "autonomous agent", "agentic", "multi-agent",
+            "tool use", "function call", "langchain", "langgraph",
+            "autogen", "crewai", "orchestrat", "mcp", "model context protocol",
+        ],
+        "Python": [
+            "python", "pandas", "numpy", "sklearn", "scikit-learn",
+            "pytorch", "tensorflow", "keras", "fastapi", "pydantic",
+        ],
+        "MLOps": [
+            "mlops", "deploy", "docker", "kubernetes", "ci/cd",
+            "model serving", "feature store", "ml pipeline",
+            "experiment tracking", "model registry",
+        ],
+        "Deep Learning": [
+            "deep learning", "neural network", "transformer", "attention",
+            "backpropagation", "gradient", "activation", "loss function",
+            "convolutional", "recurrent", "batch norm",
+        ],
+        "Data Science": [
+            "data science", "data engineer", "analytics", "statistics",
+            "visualization", "sql", "feature engineer", "eda",
+        ],
+        "Open Source": [
+            "open-source", "open source", "github", "repo", "repository",
+            "apache", "mit license", "star",
+        ],
+    },
+    search_fields=[
+        ("title",         3.0),
+        ("category",      2.5),
+        ("tags",          2.5),
+        ("description",   2.0),
+    ],
+    display_fields=[
+        ("title",       "Title"),
+        ("url",         "URL"),
+        ("category",    "Category"),
+        ("description", "Description"),
+        ("tags",        "Tags"),
+        ("email_link",  "Email"),
+        ("email_date",  "Date"),
+    ],
+)
+
+
 # Registry — add new configs here to make them available via CLI
 EMAIL_TYPE_REGISTRY: Dict[str, EmailTypeConfig] = {
     MEDIUM_DAILY_DIGEST.name: MEDIUM_DAILY_DIGEST,
-    # Future examples (just add config + gmail_search_query):
-    # "hacker_newsletter": HACKER_NEWSLETTER,
-    # "substack_digest":   SUBSTACK_DIGEST,
-    # "tldr_tech":         TLDR_TECH,
+    DAILY_DOSE_OF_DS.name: DAILY_DOSE_OF_DS,
 }
+
+
+# ── Multi-index helpers ──────────────────────────────────────────────────
+
+# Sentinel value: search across every registered newsletter index.
+ALL_EMAIL_TYPES = "all"
+
+
+def get_unified_display_fields() -> List[Tuple[str, str]]:
+    """Build a superset of display fields across all registered email types.
+
+    Preserves insertion order: fields from earlier configs come first,
+    and later configs only append fields not yet seen.  The ``source``
+    virtual field is prepended so callers always know which newsletter
+    an article came from.
+    """
+    seen: set = set()
+    unified: List[Tuple[str, str]] = [("source", "Source")]
+    seen.add("source")
+    for config in EMAIL_TYPE_REGISTRY.values():
+        for field_name, label in config.display_fields:
+            if field_name not in seen:
+                unified.append((field_name, label))
+                seen.add(field_name)
+    return unified
+
+
+def get_unified_search_fields() -> List[Tuple[str, float]]:
+    """Build a superset of search fields, keeping the highest weight per field."""
+    best: Dict[str, float] = {}
+    for config in EMAIL_TYPE_REGISTRY.values():
+        for field_name, weight in config.search_fields:
+            if field_name not in best or weight > best[field_name]:
+                best[field_name] = weight
+    # Stable order: sort by weight descending, then field name
+    return sorted(best.items(), key=lambda x: (-x[1], x[0]))

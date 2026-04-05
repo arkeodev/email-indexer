@@ -74,8 +74,8 @@ def get_html_body(email_obj: dict) -> str:
         if val and ("<html" in val.lower() or "<div" in val.lower()):
             return _decode_body(val)
 
-    # Fall back to plain text fields
-    for key in ("bodyText", "snippet", "textBody"):
+    # Fall back to plain text fields (including "body" when it's not HTML)
+    for key in ("body", "bodyText", "snippet", "textBody"):
         val = email_obj.get(key, "")
         if val:
             return _decode_body(val)

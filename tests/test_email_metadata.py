@@ -228,13 +228,17 @@ class TestParseEmailRawBodyFallback:
 
 
 class TestConfigDefaults:
-    def test_email_subject_in_default_search_fields(self):
+    def test_email_metadata_excluded_from_default_search_fields(self):
+        """email_subject/email_sender cause false positives across digest
+        siblings, so they must NOT be in the default search fields."""
         field_names = [f for f, _ in DEFAULT_SEARCH_FIELDS]
-        assert "email_subject" in field_names
-        assert "email_sender" in field_names
+        assert "email_subject" not in field_names
+        assert "email_sender" not in field_names
 
-    def test_email_link_in_default_display_fields(self):
+    def test_links_and_dates_in_default_display(self):
+        """Links and dates should be included in search result display."""
         field_names = [f for f, _ in DEFAULT_DISPLAY_FIELDS]
+        assert "url" in field_names
         assert "email_link" in field_names
         assert "email_date" in field_names
 

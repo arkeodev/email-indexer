@@ -264,6 +264,81 @@ def run_from_files(
     return total
 
 
+def run_reindex(
+    config: EmailTypeConfig,
+    output_path: str,
+    batch_size: int,
+    max_emails: int,
+    max_workers: int,
+    firecrawl_api_key: Optional[str],
+) -> IndexStats:
+    """Re-parse all cached emails from raw_emails.json with the current parser.
+
+    This clears the existing index and rebuilds it from scratch, which is
+    useful after updating a parser to pick up improved field extraction
+    (e.g. fuller descriptions).
+    """
+    email_cache_path = Path(output_path).parent / "raw_emails.json"
+    if not email_cache_path.exists():
+        console.print(
+            f"\n[red bold]Cache file not found:[/] {email_cache_path}\n"
+            "Run without --reindex first to fetch emails from Gmail.\n"
+        )
+        sys.exit(1)
+
+    # Load cached emails
+    with open(email_cache_path) as f:
+        all_emails = json.load(f)
+    if isinstance(all_emails, dict):
+        all_emails = all_emails.get("messages", all_emails.get("emails", []))
+
+    console.print(
+        f"  [bold]Re-indexing[/] {len(all_emails):,} cached emails "
+        f"from [cyan]{email_cache_path}[/]"
+    )
+
+    # Clear the existing index so all articles are treated as new
+    index_path = Path(output_path)
+    if index_path.exists():
+        console.print(f"  [dim]Clearing existing index:[/] {index_path}")
+        index_path.write_text("[]")
+
+    if max_emails:
+        all_emails = all_emails[:max_emails]
+
+    # Process all emails through the current parser
+    indexer = Indexer(store_path=output_path, firecrawl_api_key=firecrawl_api_key)
+    config.max_scrape_workers = max_workers
+    total = IndexStats()
+    t0 = time.time()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(bar_width=30),
+        MofNCompleteColumn(),
+        TextColumn("·"),
+        TextColumn("[green]{task.fields[added]}[/] added"),
+        TextColumn("·"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Re-indexing", total=len(all_emails), added="0")
+
+        for start in range(0, len(all_emails), batch_size):
+            batch = all_emails[start : start + batch_size]
+            stats = indexer.run(batch, config=config)
+            _accumulate(total, stats)
+            progress.update(
+                task,
+                advance=len(batch),
+                added=f"{total.articles_added:,}",
+            )
+
+    total.elapsed_seconds = time.time() - t0
+    return total
+
+
 # ── main ──────────────────────────────────────────────────────────────────
 
 def main(argv=None):
@@ -323,6 +398,14 @@ def main(argv=None):
         ),
     )
     parser.add_argument(
+        "--reindex", action="store_true",
+        help=(
+            "Re-parse all cached emails with the current parser. "
+            "Clears the existing index and rebuilds from raw_emails.json. "
+            "Use after updating a parser to pick up improved extraction."
+        ),
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Enable debug logging",
     )
@@ -351,7 +434,16 @@ def main(argv=None):
 
     # Run
     try:
-        if args.input:
+        if args.reindex:
+            stats = run_reindex(
+                config=config,
+                output_path=args.output,
+                batch_size=args.batch_size,
+                max_emails=args.max_emails,
+                max_workers=args.workers,
+                firecrawl_api_key=args.firecrawl_key,
+            )
+        elif args.input:
             stats = run_from_files(
                 config=config,
                 raw_files=args.input,
