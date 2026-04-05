@@ -17,6 +17,7 @@ from typing import List
 from bs4 import BeautifulSoup
 
 from .config import EmailTypeConfig
+from .parsers._helpers import ArticleStub
 
 logger = logging.getLogger(__name__)
 
@@ -127,12 +128,13 @@ def _parse_email_as_document(email_obj: dict, html: str) -> List[dict]:
     msg_id = email_obj.get("messageId", "")
     url = f"email://{msg_id}" if msg_id else ""
 
-    return [{
-        "url": url,
-        "title": subject,
-        "full_text": body_text,
-        "description": body_text[:300],
-    }]
+    stub = ArticleStub(
+        url=url,
+        title=subject,
+        full_text=body_text,
+        description=body_text[:300],
+    )
+    return [stub.to_dict()]
 
 
 # ── URL extraction ─────────────────────────────────────────────────────────

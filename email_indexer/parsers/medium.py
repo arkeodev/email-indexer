@@ -18,6 +18,8 @@ from typing import Dict, List, Optional, Set
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from ._helpers import ArticleStub
+
 logger = logging.getLogger(__name__)
 
 # ── Regexes ──────────────────────────────────────────────────────────────
@@ -203,7 +205,16 @@ def medium_email_html_parser(html: str, soup: BeautifulSoup) -> List[dict]:
             _classify_text_block(block, entry, anchor_texts)
 
         if entry.get("title"):
-            results.append(entry)
+            stub = ArticleStub(
+                url=entry.get("url", ""),
+                title=entry.get("title", ""),
+                description=entry.get("description", ""),
+                author=entry.get("author", ""),
+                publication=entry.get("publication", ""),
+                read_time=entry.get("read_time", ""),
+                claps=entry.get("claps", ""),
+            )
+            results.append(stub.to_dict())
         else:
             logger.debug("No title found for article %s, skipping", hex_id)
 

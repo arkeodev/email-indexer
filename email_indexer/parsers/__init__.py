@@ -18,6 +18,7 @@ To add a new parser:
 """
 
 __all__ = [
+    "ArticleStub",
     "daily_dose_email_html_parser",
     "medium_email_html_parser",
 ]
@@ -31,4 +32,7 @@ def __getattr__(name: str):
     if name == "daily_dose_email_html_parser":
         from .daily_dose import daily_dose_email_html_parser
         return daily_dose_email_html_parser
+    if name == "ArticleStub":
+        from ._helpers import ArticleStub
+        return ArticleStub
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
