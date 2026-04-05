@@ -27,42 +27,12 @@ def _find_dotenv() -> Optional[Path]:
     return None
 
 
-def _load_dotenv(path: Path):
-    """Minimal .env parser — no dependency on python-dotenv required."""
-    import logging as _log
-
-    try:
-        with open(path) as f:
-            for lineno, line in enumerate(f, 1):
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                # Only set if not already in environment
-                if key and key not in os.environ:
-                    os.environ[key] = value
-    except FileNotFoundError:
-        pass  # .env is optional
-    except Exception as exc:
-        _log.getLogger(__name__).warning(
-            "Failed to parse .env file %s: %s", path, exc
-        )
-
-
-# Load .env on import (idempotent — skips keys already in env)
+# Load .env on import (idempotent — skips keys already in env).
+# python-dotenv is a core dependency (pyproject.toml).
 _dotenv_path = _find_dotenv()
 if _dotenv_path:
-    _load_dotenv(_dotenv_path)
-
-# Try python-dotenv if available (handles more edge cases)
-try:
     from dotenv import load_dotenv as _pd_load
-    if _dotenv_path:
-        _pd_load(_dotenv_path, override=False)
-except ImportError:
-    pass
+    _pd_load(_dotenv_path, override=False)
 
 
 @dataclass

@@ -181,7 +181,7 @@ class TestUnifiedFields:
 
 class TestMediumParserWiring:
     def test_parser_is_callable(self):
-        """The lazy-loaded parser should be a real function."""
+        """The lazy wrapper should be callable and defer the real import."""
         parser = MEDIUM_DAILY_DIGEST.email_html_parser
         assert callable(parser)
-        assert parser.__name__ == "medium_email_html_parser"
+        assert parser.__name__ == "_lazy_medium_parser"

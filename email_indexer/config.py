@@ -102,15 +102,16 @@ class EmailTypeConfig:
 
 # ── Pre-built configs ──────────────────────────────────────────────────────
 
-# Lazy import to avoid circular dependency: config → parsers → (nothing)
-def _get_medium_parser():
+def _lazy_medium_parser(html, soup):
+    """Deferred import — the parser module is loaded on first call, not at config import time."""
     from .parsers.medium import medium_email_html_parser
-    return medium_email_html_parser
+    return medium_email_html_parser(html, soup)
 
 
-def _get_daily_dose_parser():
+def _lazy_daily_dose_parser(html, soup):
+    """Deferred import — the parser module is loaded on first call, not at config import time."""
     from .parsers.daily_dose import daily_dose_email_html_parser
-    return daily_dose_email_html_parser
+    return daily_dose_email_html_parser(html, soup)
 
 
 MEDIUM_DAILY_DIGEST = EmailTypeConfig(
@@ -126,7 +127,7 @@ MEDIUM_DAILY_DIGEST = EmailTypeConfig(
         r'|medium\.com/\?'              # bare homepage with params
     ),
     index_filename="medium_articles_index.json",
-    email_html_parser=_get_medium_parser(),
+    email_html_parser=_lazy_medium_parser,
     publication_ignore=frozenset({"Medium", ""}),
     tags_config={
         "AI": [
@@ -192,7 +193,7 @@ DAILY_DOSE_OF_DS = EmailTypeConfig(
         r"|unsubscribe\."
     ),
     index_filename="daily_dose_ds_index.json",
-    email_html_parser=_get_daily_dose_parser(),
+    email_html_parser=_lazy_daily_dose_parser,
     scrape_article_pages=False,  # articles are summarized in the email
     publication_ignore=frozenset({"Daily Dose of Data Science", ""}),
     tags_config={

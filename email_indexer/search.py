@@ -34,6 +34,7 @@ import numpy as np
 
 from .config import DEFAULT_SEARCH_FIELDS
 from .embeddings import engine as embedding_engine, load_embeddings
+from .store import _normalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +88,18 @@ class ArticleSearcher:
         self._embeddings_path = Path(embeddings_path) if embeddings_path else None
         self._articles: List[dict] = []
         self._embeddings: Optional[np.ndarray] = None
+        self._url_index: dict[str, dict] = {}
         self._load()
 
     # ── loading ──────────────────────────────────────────────────────────
+
+    def _rebuild_url_index(self):
+        """Build a normalised-URL → article dict for O(1) lookups."""
+        self._url_index: dict[str, dict] = {}
+        for a in self._articles:
+            url = a.get("url") or ""
+            if url:
+                self._url_index[_normalize_url(url)] = a
 
     def _load(self):
         if not self._index_path.exists():
@@ -103,6 +113,7 @@ class ArticleSearcher:
             self._articles = []
             return
         logger.info("Loaded %d articles from %s", len(self._articles), self._index_path)
+        self._rebuild_url_index()
 
         if self._embeddings_path and self._embeddings_path.exists():
             self._embeddings = load_embeddings(self._embeddings_path)
@@ -125,7 +136,28 @@ class ArticleSearcher:
         """Reload index and embeddings from disk (e.g. after a new indexing run)."""
         self._articles = []
         self._embeddings = None
+        self._url_index = {}
         self._load()
+
+    # ── candidate filtering ──────────────────────────────────────────────
+
+    def _candidate_indices(
+        self,
+        email_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> np.ndarray:
+        """Return article indices matching the email_type / tag filters."""
+        if not email_type and not tags:
+            return np.arange(len(self._articles))
+        tags_lower = {t.lower() for t in (tags or [])}
+        indices = []
+        for i, a in enumerate(self._articles):
+            if email_type and a.get("email_type") != email_type:
+                continue
+            if tags and not any(t.lower() in tags_lower for t in a.get("tags", [])):
+                continue
+            indices.append(i)
+        return np.array(indices, dtype=np.intp)
 
     # ── keyword search ────────────────────────────────────────────────────
 
@@ -189,19 +221,7 @@ class ArticleSearcher:
             logger.info("Semantic search unavailable — falling back to keyword search")
             return self.keyword_search(query, top_k=top_k, tags=tags, email_type=email_type)
 
-        # Pre-filter candidates to avoid scoring irrelevant articles
-        if email_type or tags:
-            tags_lower = {t.lower() for t in (tags or [])}
-            candidate_indices = []
-            for i, a in enumerate(self._articles):
-                if email_type and a.get("email_type") != email_type:
-                    continue
-                if tags and not any(t.lower() in tags_lower for t in a.get("tags", [])):
-                    continue
-                candidate_indices.append(i)
-            candidate_indices = np.array(candidate_indices, dtype=np.intp)
-        else:
-            candidate_indices = np.arange(len(self._articles))
+        candidate_indices = self._candidate_indices(email_type, tags)
 
         if len(candidate_indices) == 0:
             return []
@@ -244,19 +264,7 @@ class ArticleSearcher:
 
         tokens = re.findall(r"\w+", query.lower())
 
-        # Pre-filter candidates
-        if email_type or tags:
-            tags_lower = {t.lower() for t in (tags or [])}
-            candidate_indices = []
-            for i, a in enumerate(self._articles):
-                if email_type and a.get("email_type") != email_type:
-                    continue
-                if tags and not any(t.lower() in tags_lower for t in a.get("tags", [])):
-                    continue
-                candidate_indices.append(i)
-            candidate_indices = np.array(candidate_indices, dtype=np.intp)
-        else:
-            candidate_indices = np.arange(len(self._articles))
+        candidate_indices = self._candidate_indices(email_type, tags)
 
         if len(candidate_indices) == 0:
             return []
@@ -299,6 +307,25 @@ class ArticleSearcher:
         if self._embeddings is not None and embedding_engine.is_enabled:
             return self.hybrid_search(query, top_k=top_k, search_fields=search_fields, **kwargs)
         return self.keyword_search(query, top_k=top_k, search_fields=search_fields, **kwargs)
+
+    # ── public accessors ─────────────────────────────────────────────────
+
+    @property
+    def articles(self) -> List[dict]:
+        """All indexed articles. Callers must not mutate the returned list."""
+        return self._articles
+
+    def get_article_by_url(self, url: str) -> Optional[dict]:
+        """O(1) lookup by normalised URL, with substring fallback."""
+        norm = _normalize_url(url)
+        exact = self._url_index.get(norm)
+        if exact is not None:
+            return exact
+        # Substring fallback for partial URLs
+        for article_url, article in self._url_index.items():
+            if norm in article_url:
+                return article
+        return None
 
     @property
     def article_count(self) -> int:

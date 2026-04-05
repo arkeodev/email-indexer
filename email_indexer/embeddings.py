@@ -102,33 +102,32 @@ class EmbeddingEngine:
         if self._backend is not None:
             return
         with self._lock:
-            # Double-check after acquiring lock
             if self._backend is not None:
                 return
-        backend = settings.embedding_backend.lower()
-        if backend == "sentence_transformers":
-            try:
-                self._backend = _SentenceTransformersBackend(settings.embedding_model)
-                self._effective_enabled = True
-            except ImportError as exc:
-                logger.warning(
-                    "sentence-transformers not installed — semantic search disabled. "
-                    "Install with: uv sync --extra semantic  (%s)", exc
-                )
-                self._backend = _NoneBackend()
-                self._effective_enabled = False
-        elif backend == "openai":
-            key = settings.openai_api_key
-            if not key:
-                logger.warning("OPENAI_API_KEY not set — falling back to 'none'")
-                self._backend = _NoneBackend()
-                self._effective_enabled = False
+            backend = settings.embedding_backend.lower()
+            if backend == "sentence_transformers":
+                try:
+                    self._backend = _SentenceTransformersBackend(settings.embedding_model)
+                    self._effective_enabled = True
+                except ImportError as exc:
+                    logger.warning(
+                        "sentence-transformers not installed — semantic search disabled. "
+                        "Install with: uv sync --extra semantic  (%s)", exc
+                    )
+                    self._backend = _NoneBackend()
+                    self._effective_enabled = False
+            elif backend == "openai":
+                key = settings.openai_api_key
+                if not key:
+                    logger.warning("OPENAI_API_KEY not set — falling back to 'none'")
+                    self._backend = _NoneBackend()
+                    self._effective_enabled = False
+                else:
+                    self._backend = _OpenAIBackend(settings.openai_embedding_model, key)
+                    self._effective_enabled = True
             else:
-                self._backend = _OpenAIBackend(settings.openai_embedding_model, key)
-                self._effective_enabled = True
-        else:
-            self._backend = _NoneBackend()
-            self._effective_enabled = False
+                self._backend = _NoneBackend()
+                self._effective_enabled = False
 
     def embed(self, texts: List[str]) -> np.ndarray:
         """Embed a list of strings; returns (N, D) float32 array."""

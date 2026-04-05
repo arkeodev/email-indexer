@@ -116,8 +116,10 @@ def backfill(email_type: str, dry_run: bool = False) -> Dict[str, int]:
     )
 
     if not dry_run and stats["articles_updated"] > 0:
-        with open(index_path, "w") as f:
-            json.dump(articles, f, ensure_ascii=False)
+        tmp = index_path.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(articles, f, indent=2, ensure_ascii=False)
+        tmp.replace(index_path)
         logger.info("Saved updated index to %s", index_path)
     elif dry_run:
         logger.info("Dry run — no changes written.")

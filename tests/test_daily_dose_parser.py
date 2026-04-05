@@ -326,7 +326,7 @@ class TestDailyDoseConfig:
     def test_parser_is_callable(self):
         parser = DAILY_DOSE_OF_DS.email_html_parser
         assert callable(parser)
-        assert parser.__name__ == "daily_dose_email_html_parser"
+        assert parser.__name__ == "_lazy_daily_dose_parser"
 
     def test_scraping_disabled(self):
         assert DAILY_DOSE_OF_DS.scrape_article_pages is False
