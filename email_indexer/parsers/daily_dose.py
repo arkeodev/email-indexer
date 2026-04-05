@@ -18,12 +18,13 @@ The parser:
   4. Returns one stub per article with: url, title, category, description
 """
 
-import base64
 import logging
 import re
 from typing import List, Optional, Set, Tuple
 
 from bs4 import BeautifulSoup, Comment, NavigableString, Tag
+
+from ..email_parser import b64url_decode
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +85,7 @@ def decode_tracking_url(href: str) -> Optional[str]:
         return None
 
     try:
-        # Add padding if needed
-        padded = b64_part + "=" * (-len(b64_part) % 4)
-        decoded = base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
+        decoded = b64url_decode(b64_part)
         # Check if it looks like a URL
         if decoded.startswith(("http://", "https://")):
             return decoded

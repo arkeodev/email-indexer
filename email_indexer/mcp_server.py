@@ -611,7 +611,7 @@ async def email_indexer_list_tags(params: ListTagsInput) -> str:
             if searcher is None:
                 continue
             total_articles += searcher.article_count
-            for article in searcher._articles:
+            for article in searcher.articles:
                 for tag in article.get("tags", []):
                     tag_counts[tag] = tag_counts.get(tag, 0) + 1
     else:
@@ -620,7 +620,7 @@ async def email_indexer_list_tags(params: ListTagsInput) -> str:
             return f"Error: Article index not found for '{params.email_type}'. Run `email-indexer --type {params.email_type}` first."
         total_articles = searcher.article_count
         tag_counts = {}
-        for article in searcher._articles:
+        for article in searcher.articles:
             for tag in article.get("tags", []):
                 tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
@@ -662,8 +662,6 @@ async def email_indexer_get_article(params: GetArticleInput) -> str:
     """
     from .config import ALL_EMAIL_TYPES, EMAIL_TYPE_REGISTRY
 
-    url_lower = params.url.lower().strip().rstrip("/")
-
     # Determine which searchers to check
     if params.email_type == ALL_EMAIL_TYPES:
         searchers = [(name, _get_searcher(name)) for name in EMAIL_TYPE_REGISTRY]
@@ -673,27 +671,26 @@ async def email_indexer_get_article(params: GetArticleInput) -> str:
     for name, searcher in searchers:
         if searcher is None:
             continue
-        for article in searcher._articles:
-            article_url = (article.get("url", "") or "").lower().strip().rstrip("/")
-            if article_url == url_lower or url_lower in article_url:
-                if params.response_format == ResponseFormat.JSON:
-                    return json.dumps(article, indent=2, ensure_ascii=False)
+        article = searcher.get_article_by_url(params.url)
+        if article is not None:
+            if params.response_format == ResponseFormat.JSON:
+                return json.dumps(article, indent=2, ensure_ascii=False)
 
-                display_fields = _get_display_fields(name)
-                lines = [f"## {article.get('title', '(no title)')}"]
-                lines.append(f"**URL**: {article.get('url', '')}")
-                for field_name, label in display_fields:
-                    if field_name in ("title", "url"):
-                        continue
-                    val = article.get(field_name)
-                    if not val:
-                        continue
-                    if isinstance(val, list):
-                        val = ", ".join(str(v) for v in val)
-                    lines.append(f"**{label}**: {val}")
-                if article.get("description"):
-                    lines.append(f"\n{article['description']}")
-                return "\n".join(lines)
+            display_fields = _get_display_fields(name)
+            lines = [f"## {article.get('title', '(no title)')}"]
+            lines.append(f"**URL**: {article.get('url', '')}")
+            for field_name, label in display_fields:
+                if field_name in ("title", "url"):
+                    continue
+                val = article.get(field_name)
+                if not val:
+                    continue
+                if isinstance(val, list):
+                    val = ", ".join(str(v) for v in val)
+                lines.append(f"**{label}**: {val}")
+            if article.get("description"):
+                lines.append(f"\n{article['description']}")
+            return "\n".join(lines)
 
     return f"Article not found in any index for URL: {params.url}"
 

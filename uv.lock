@@ -634,16 +634,12 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "firecrawl-py" },
-    { name = "mcp", extra = ["cli"] },
     { name = "openai" },
     { name = "sentence-transformers" },
 ]
 dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
-]
-mcp = [
-    { name = "mcp", extra = ["cli"] },
 ]
 openai = [
     { name = "openai" },
@@ -664,13 +660,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12" },
-    { name = "email-indexer", extras = ["scraping", "semantic", "openai", "mcp"], marker = "extra == 'all'" },
+    { name = "email-indexer", extras = ["scraping", "semantic", "openai"], marker = "extra == 'all'" },
     { name = "firecrawl-py", marker = "extra == 'scraping'", specifier = ">=1.0" },
     { name = "google-api-python-client", specifier = ">=2.0" },
     { name = "google-auth", specifier = ">=2.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.0" },
-    { name = "mcp", extras = ["cli"], marker = "extra == 'mcp'", specifier = ">=1.0" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -680,7 +675,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0" },
     { name = "sentence-transformers", marker = "extra == 'semantic'", specifier = ">=3.0" },
 ]
-provides-extras = ["scraping", "semantic", "openai", "mcp", "all", "dev"]
+provides-extras = ["scraping", "semantic", "openai", "all", "dev"]
 
 [package.metadata.requires-dev]
 dev = [

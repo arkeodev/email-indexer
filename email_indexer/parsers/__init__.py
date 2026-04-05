@@ -17,6 +17,18 @@ To add a new parser:
   3. Import it here and wire it into the relevant ``EmailTypeConfig``
 """
 
-from .medium import medium_email_html_parser
+__all__ = [
+    "daily_dose_email_html_parser",
+    "medium_email_html_parser",
+]
 
-__all__ = ["medium_email_html_parser"]
+
+def __getattr__(name: str):
+    """Lazy imports — parser modules are loaded only when explicitly accessed."""
+    if name == "medium_email_html_parser":
+        from .medium import medium_email_html_parser
+        return medium_email_html_parser
+    if name == "daily_dose_email_html_parser":
+        from .daily_dose import daily_dose_email_html_parser
+        return daily_dose_email_html_parser
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

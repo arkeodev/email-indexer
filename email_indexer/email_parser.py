@@ -23,13 +23,17 @@ logger = logging.getLogger(__name__)
 
 # ── helpers ───────────────────────────────────────────────────────────────
 
+def b64url_decode(data: str) -> str:
+    """Decode a base64url-encoded string with correct padding."""
+    padded = data + "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
+
+
 def _decode_body(raw_body) -> str:
     """Handle plain strings, base64-encoded bytes, or dict payloads."""
     if isinstance(raw_body, str):
-        # Try base64 decode first (Gmail API returns base64url-encoded bodies)
         try:
-            decoded = base64.urlsafe_b64decode(raw_body + "==").decode("utf-8", errors="replace")
-            # If decoded looks like HTML or readable text, use it
+            decoded = b64url_decode(raw_body)
             if len(decoded) > 50:
                 return decoded
         except Exception:
@@ -99,9 +103,7 @@ def clean_text_from_html(html: str) -> str:
 
     text = soup.get_text(separator=" ", strip=True)
 
-    # Collapse runs of whitespace / newlines
-    import re as _re
-    text = _re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
     return text
 
 

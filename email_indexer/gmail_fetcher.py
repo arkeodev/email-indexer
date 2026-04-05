@@ -16,12 +16,13 @@ Setup:
 Then just run the CLI — it will open the browser automatically on first use.
 """
 
-import base64
 import json
 import logging
 import os
 from pathlib import Path
 from typing import Iterator, List, Optional
+
+from .email_parser import b64url_decode
 
 logger = logging.getLogger(__name__)
 
@@ -90,30 +91,28 @@ def _get_service():
     return build("gmail", "v1", credentials=creds)
 
 
-def _decode_body(payload: dict) -> str:
-    """Recursively extract the HTML (preferred) or plain-text body."""
+def _extract_body_from_payload(payload: dict) -> str:
+    """Recursively extract the HTML (preferred) or plain-text body from a Gmail payload."""
     mime = payload.get("mimeType", "")
     body_data = payload.get("body", {}).get("data", "")
 
     if mime == "text/html" and body_data:
-        return base64.urlsafe_b64decode(body_data + "==").decode("utf-8", errors="replace")
+        return b64url_decode(body_data)
 
     if mime.startswith("multipart/"):
-        # Prefer HTML part
         parts = payload.get("parts", [])
         for part in parts:
             if part.get("mimeType") == "text/html":
-                result = _decode_body(part)
+                result = _extract_body_from_payload(part)
                 if result:
                     return result
-        # Fallback to any part
         for part in parts:
-            result = _decode_body(part)
+            result = _extract_body_from_payload(part)
             if result:
                 return result
 
     if mime == "text/plain" and body_data:
-        return base64.urlsafe_b64decode(body_data + "==").decode("utf-8", errors="replace")
+        return b64url_decode(body_data)
 
     return ""
 

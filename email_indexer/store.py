@@ -13,6 +13,7 @@ Secondary: normalised title (for same article under different URLs).
 import json
 import logging
 import re
+import shutil
 from pathlib import Path
 from typing import List, Optional, Set
 
@@ -89,7 +90,6 @@ class ArticleStore:
                 # Create a backup of the corrupt file before resetting
                 backup = self._index_path.with_suffix(".bak")
                 try:
-                    import shutil
                     shutil.copy2(self._index_path, backup)
                     logger.warning("Corrupt index backed up to %s", backup)
                 except Exception:
